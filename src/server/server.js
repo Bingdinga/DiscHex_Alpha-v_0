@@ -339,8 +339,21 @@ io.on('connection', (socket) => {
 
 function generateDefaultTerrain() {
     const terrain = {};
-    const radius = 8;
+    const radius = 53;
 
+    // Create some hills with peaks at specific points
+    const hillPeaks = [
+        { q: 3, r: -5, s: 2, height: 3, radius: 3 },  // A medium hill
+        { q: -4, r: 2, s: 2, height: 4, radius: 4 },  // A larger hill
+        { q: 6, r: -2, s: -4, height: 2, radius: 2 }  // A small hill
+    ];
+
+    // Helper function to calculate distance between two hex coordinates
+    const hexDistance = (q1, r1, s1, q2, r2, s2) => {
+        return Math.max(Math.abs(q1 - q2), Math.abs(r1 - r2), Math.abs(s1 - s2));
+    };
+
+    // Generate the base terrain grid
     for (let q = -radius; q <= radius; q++) {
         const r1 = Math.max(-radius, -q - radius);
         const r2 = Math.min(radius, -q + radius);
@@ -355,42 +368,104 @@ function generateDefaultTerrain() {
             // Calculate distance from center for terrain distribution
             const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
 
-            // Simple noise function for terrain variety (server-side adaptation)
+            // Simple noise function for terrain variety
             const noise = Math.sin(q * 0.5) * Math.cos(r * 0.5) * Math.sin(s * 0.3);
 
-            // Create some mountains at medium distance
-            if (dist > 3 && dist < 6 && noise > 0.2) {
-                terrainType = 'mountain';
-                elevation = Math.floor(noise * 3) + 1;
-            }
-            // Create a water area in one quadrant
-            else if (q < -2 && r > 2 && noise < 0) {
-                terrainType = 'water';
-            }
-            // Create some forest patches
-            else if ((q > 0 && r < 0) || (noise > 0.1 && dist < 5)) {
-                terrainType = 'forest';
-            }
-            // Create a desert area in another quadrant
-            else if (q > 3 && r < -1) {
-                terrainType = 'desert';
-            }
-            // Create a small snow area
-            else if (q < -3 && r < -3 && noise > 0) {
-                terrainType = 'snow';
-            }
-            // Add a small lava area
-            else if (dist > 6 && q > 3 && r > 1) {
-                terrainType = 'lava';
+            // Hill generation - check if the hex is in range of any hill peak
+            // and calculate its height based on distance from peak
+            for (const peak of hillPeaks) {
+                const distanceToPeak = hexDistance(q, r, s, peak.q, peak.r, peak.s);
+                if (distanceToPeak <= peak.radius) {
+                    // Create a smooth hill slope - higher elevation closer to peak
+                    const hillElevation = Math.max(0, Math.floor(peak.height * (1 - distanceToPeak / peak.radius)));
+                    elevation = Math.max(elevation, hillElevation);
+
+                    // Hills can have different terrain types at different heights
+                    if (hillElevation > peak.height * 0.7) {
+                        // Peak areas
+                        if (peak.height >= 4) {
+                            terrainType = 'snow'; // Snow-capped peaks for tall mountains
+                        } else {
+                            terrainType = 'mountain'; // Rocky peaks for smaller hills
+                        }
+                    } else if (hillElevation > peak.height * 0.3) {
+                        // Mid-level areas
+                        terrainType = 'forest'; // Forested slopes
+                    }
+                    // Lower slopes keep the terrain type of the surrounding area
+                }
             }
 
-            // Add the hex to the terrain data
-            const hexId = `${q},${r},${s}`;
-            terrain[hexId] = {
-                q, r, s,
-                type: terrainType,
-                elevation
-            };
+            // Random terrain features - similar to your existing code, but now affected by hills
+            if (elevation === 0) { // Only apply these to areas not already affected by hills
+                // Create some mountains at medium distance
+                if (dist > 3 && dist < 6 && noise > 0.2) {
+                    terrainType = 'mountain';
+                    elevation = Math.floor(noise * 3) + 1;
+                }
+                // Create a water area in one quadrant - water stays at elevation 0
+                else if (q < -2 && r > 2 && noise < 0) {
+                    terrainType = 'water';
+                    elevation = 0;
+                }
+                // Create some forest patches
+                else if ((q > 0 && r < 0) || (noise > 0.1 && dist < 5)) {
+                    terrainType = 'forest';
+                    // Slightly elevated forest
+                    if (noise > 0.15) {
+                        elevation = 1;
+                    }
+                }
+                // Create a desert area in another quadrant
+                else if (q > 3 && r < -1) {
+                    terrainType = 'desert';
+                    // Desert dunes - small elevation changes
+                    elevation = Math.floor(Math.abs(noise * 2));
+                }
+                // Create a small snow area
+                else if (q < -3 && r < -3 && noise > 0) {
+                    terrainType = 'snow';
+                    // Snow has slight elevation
+                    elevation = Math.floor(Math.abs(noise) * 2);
+                }
+                // Add a small lava area
+                else if (dist > 6 && q > 3 && r > 1) {
+                    terrainType = 'lava';
+                    // Lava flows from slight elevation
+                    elevation = 1;
+                }
+            }
+
+            // Create stacked hexes for elevations greater than 1
+            if (elevation > 0) {
+                // Base hex at elevation 0
+                const baseHexId = `${q},${r},${s}`;
+                terrain[baseHexId] = {
+                    q, r, s,
+                    type: terrainType,
+                    elevation: 0  // Base is always at elevation 0
+                };
+
+                // Create stacked hexes for each level of elevation
+                for (let level = 1; level <= elevation; level++) {
+                    const stackId = `${q},${r},${s}:${level}`;
+                    terrain[stackId] = {
+                        q, r, s,
+                        type: terrainType,
+                        isStacked: true,
+                        stackLevel: level,
+                        stackHeight: level * 0.4  // Match your hexHeight in client (0.4)
+                    };
+                }
+            } else {
+                // Standard single hex for elevation 0
+                const hexId = `${q},${r},${s}`;
+                terrain[hexId] = {
+                    q, r, s,
+                    type: terrainType,
+                    elevation: 0
+                };
+            }
         }
     }
 

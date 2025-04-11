@@ -55,9 +55,12 @@ export class HexGrid {
                 this.hexSize * Math.sin(angle)
             );
 
-            // UVs
-            uvs.push(0.5 + 0.5 * Math.cos(angle), 0.5 + 0.5 * Math.sin(angle));
-            uvs.push(0.5 + 0.5 * Math.cos(angle), 0.5 + 0.5 * Math.sin(angle));
+            // Better UV mapping for hexagonal top and bottom faces
+            // Map each vertex to a position in the texture
+            const u = 0.5 + 0.4 * Math.cos(angle);  // Reduced from 0.5 to 0.4 to avoid texture edge artifacts
+            const v = 0.5 + 0.4 * Math.sin(angle);  // Reduced from 0.5 to 0.4 to avoid texture edge artifacts
+            uvs.push(u, v); // Bottom vertex UV
+            uvs.push(u, v);
         }
 
         // Create the top and bottom faces
@@ -74,6 +77,32 @@ export class HexGrid {
 
             // Side faces
             const nextI = (i + 1) % 6;
+            // For side faces, we want UV coordinates that map the texture horizontally
+            // around the hex side
+
+            // Bottom left vertex of side face
+            const u1 = i / 6;
+            const v1 = 0;
+
+            // Top left vertex of side face
+            const u2 = i / 6;
+            const v2 = 1;
+
+            // Top right vertex of side face
+            const u3 = (i + 1) / 6;
+            const v3 = 1;
+
+            // Bottom right vertex of side face
+            const u4 = (i + 1) / 6;
+            const v4 = 0;
+
+            // We need to add these UVs to our UV array, but we need to account for
+            // the existing UVs for top and bottom faces
+
+            // Simplification: For now, we'll keep using the existing UVs for simplicity
+            // In a complete implementation, you would create a new BufferGeometry for each face
+            // or use an indexed BufferGeometry with custom UV attributes
+
             indices.push(i * 2, i * 2 + 1, nextI * 2 + 1);
             indices.push(i * 2, nextI * 2 + 1, nextI * 2);
         }
@@ -89,44 +118,90 @@ export class HexGrid {
     }
 
     createBasicMaterials() {
-        // Create basic terrain type materials
+
+        const textureLoader = new THREE.TextureLoader();
+
+        const grassTexture = textureLoader.load('textures/terrain/moss_block.png');
+        const forestTexture = textureLoader.load('textures/terrain/azalea_leaves.png');
+        const waterTexture = textureLoader.load('textures/terrain/blue_wool.png');
+        const mountainTexture = textureLoader.load('textures/terrain/cobblestone.png');
+        const desertTexture = textureLoader.load('textures/terrain/sand.png');
+        const snowTexture = textureLoader.load('textures/terrain/snow.png');
+        const lavaTexture = textureLoader.load('textures/terrain/magma.png');
+        const acidTexture = textureLoader.load('textures/terrain/slime_block.png');
+        const magicTexture = textureLoader.load('textures/terrain/amethyst_block.png');
+        const corruptedTexture = textureLoader.load('textures/terrain/netherrack.png');
+
+        const setupTexture = (texture) => {
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            // Smaller repeat values make the texture appear "zoomed out"
+            // Adjust these values based on your texture size and desired look
+            texture.repeat.set(3, 3);
+            return texture;
+        };
+
+        // Apply configuration to all textures
+        [grassTexture, forestTexture, waterTexture, mountainTexture, desertTexture,
+            snowTexture, lavaTexture, acidTexture, magicTexture, corruptedTexture]
+            .forEach(setupTexture);
+
+        // Create materials with textures
         this.hexMaterials = {
-            grass: new THREE.MeshStandardMaterial({ color: 0x7cfc00, flatShading: true }),
-            forest: new THREE.MeshStandardMaterial({ color: 0x228b22, flatShading: true }),
+            grass: new THREE.MeshStandardMaterial({
+                map: grassTexture,
+                flatShading: true
+            }),
+            forest: new THREE.MeshStandardMaterial({
+                map: forestTexture,
+                flatShading: true
+            }),
             water: new THREE.MeshStandardMaterial({
-                color: 0x1e90ff,
+                map: waterTexture,
                 flatShading: true,
                 transparent: true,
                 opacity: 0.8,
             }),
-            mountain: new THREE.MeshStandardMaterial({ color: 0x808080, flatShading: true }),
-            desert: new THREE.MeshStandardMaterial({ color: 0xf4a460, flatShading: true }),
-            snow: new THREE.MeshStandardMaterial({ color: 0xfffafa, flatShading: true }),
+            mountain: new THREE.MeshStandardMaterial({
+                map: mountainTexture,
+                flatShading: true
+            }),
+            desert: new THREE.MeshStandardMaterial({
+                map: desertTexture,
+                flatShading: true
+            }),
+            snow: new THREE.MeshStandardMaterial({
+                map: snowTexture,
+                flatShading: true
+            }),
             lava: new THREE.MeshStandardMaterial({
-                color: 0xff4500,
+                map: lavaTexture,
                 flatShading: true,
                 emissive: 0xff0000,
                 emissiveIntensity: 0.5,
             }),
             acid: new THREE.MeshStandardMaterial({
-                color: 0x00ff00,
+                map: acidTexture,
                 flatShading: true,
                 transparent: true,
                 opacity: 0.7,
             }),
             magic: new THREE.MeshStandardMaterial({
-                color: 0x9370db,
+                map: magicTexture,
                 flatShading: true,
                 emissive: 0x8a2be2,
                 emissiveIntensity: 0.3,
             }),
-            corrupted: new THREE.MeshStandardMaterial({ color: 0x4b0082, flatShading: true }),
+            corrupted: new THREE.MeshStandardMaterial({
+                map: corruptedTexture,
+                flatShading: true
+            }),
         };
     }
 
     createDefaultGrid() {
         // Create a more interesting terrain with various types
-        const radius = 8; // Larger radius for more space
+        const radius = 17; // Larger radius for more space
 
         for (let q = -radius; q <= radius; q++) {
             const r1 = Math.max(-radius, -q - radius);

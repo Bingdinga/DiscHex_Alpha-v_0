@@ -119,6 +119,16 @@ class Game {
     // Update components
     this.cameraManager.update();
 
+    // Animate water and lava textures
+    const time = Date.now() * 0.001; // Time in seconds
+    if (this.hexGrid.hexMaterials.water.map) {
+      this.hexGrid.hexMaterials.water.map.offset.y = Math.sin(time) * 0.05;
+    }
+    if (this.hexGrid.hexMaterials.lava.map) {
+      this.hexGrid.hexMaterials.lava.map.offset.x = Math.sin(time * 0.5) * 0.05;
+      this.hexGrid.hexMaterials.lava.map.offset.y = Math.cos(time * 0.5) * 0.05;
+    }
+
     // Update fog of war if a local character exists
     if (this.characterManager && this.characterManager.localCharacter) {
       this.fogOfWar.updateVisibility(this.characterManager.localCharacter.position);

@@ -1,3 +1,8 @@
+#Public ignores
+public/textures/*
+public/models/*
+
+
 # Dependencies
 /node_modules
 /.pnp
@@ -84,7 +89,7 @@ dist
 
 # Gatsby files
 .cache/
-public
+public/textures/*
 
 # vuepress build output
 .vuepress/dist

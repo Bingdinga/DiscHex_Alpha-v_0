@@ -1,6 +1,8 @@
 #Public ignores
 public/textures/*
 public/models/*
+!public/**/.gitkeep
+
 
 
 # Dependencies

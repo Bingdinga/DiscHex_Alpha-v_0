@@ -1,4 +1,5 @@
-// public/js/hexGrid.js
+import { TerrainGenerator } from './terrainGenerator.js';
+
 export class HexGrid {
     constructor(scene) {
         this.scene = scene;
@@ -6,6 +7,7 @@ export class HexGrid {
         this.hexHeight = 0.4;
         this.hexMaterials = {};
         this.hexMeshes = {};
+        this.terrainGenerator = new TerrainGenerator();
 
         this.wireframeMeshes = {}; // Store wireframe meshes
         this.wireframeVisible = false; // Track wireframe visibility
@@ -137,7 +139,7 @@ export class HexGrid {
             texture.wrapT = THREE.RepeatWrapping;
             // Smaller repeat values make the texture appear "zoomed out"
             // Adjust these values based on your texture size and desired look
-            texture.repeat.set(3, 3);
+            texture.repeat.set(4, 4);
             return texture;
         };
 
@@ -199,57 +201,10 @@ export class HexGrid {
         };
     }
 
-    createDefaultGrid() {
-        // Create a more interesting terrain with various types
-        const radius = 17; // Larger radius for more space
-
-        for (let q = -radius; q <= radius; q++) {
-            const r1 = Math.max(-radius, -q - radius);
-            const r2 = Math.min(radius, -q + radius);
-
-            for (let r = r1; r <= r2; r++) {
-                const s = -q - r;
-
-                // Determine terrain type based on position
-                let terrainType = 'grass'; // Default type
-                let elevation = 0;
-
-                // Calculate distance from center for terrain distribution
-                const dist = Math.max(Math.abs(q), Math.abs(r), Math.abs(s));
-
-                // Simple noise function for terrain variety
-                const noise = Math.sin(q * 0.5) * Math.cos(r * 0.5) * Math.sin(s * 0.3);
-
-                // Create some mountains at medium distance
-                if (dist > 3 && dist < 6 && noise > 0.2) {
-                    terrainType = 'mountain';
-                    elevation = Math.floor(noise * 3) + 1;
-                }
-                // Create a water area in one quadrant
-                else if (q < -2 && r > 2 && noise < 0) {
-                    terrainType = 'water';
-                }
-                // Create some forest patches
-                else if ((q > 0 && r < 0) || (noise > 0.1 && dist < 5)) {
-                    terrainType = 'forest';
-                }
-                // Create a desert area in another quadrant
-                else if (q > 3 && r < -1) {
-                    terrainType = 'desert';
-                }
-                // Create a small snow area
-                else if (q < -3 && r < -3 && noise > 0) {
-                    terrainType = 'snow';
-                }
-                // Add a small lava area
-                else if (dist > 6 && q > 3 && r > 1) {
-                    terrainType = 'lava';
-                }
-
-                // Create the hex with determined type and elevation
-                this.createHex(q, r, s, terrainType, elevation);
-            }
-        }
+    createDefaultGrid(options = {}) {
+        const radius = options.radius || 17;
+        const terrainData = this.terrainGenerator.generateTerrain(radius, options);
+        this.loadTerrain(terrainData);
     }
 
     createHex(q, r, s, type = 'grass', elevation = 0) {
@@ -890,6 +845,10 @@ export class HexGrid {
     loadTerrain(terrainData) {
         console.log(`Loading terrain with ${Object.keys(terrainData).length} hexes`);
 
+        // Log stack information for debugging
+        const stackedHexes = Object.keys(terrainData).filter(id => id.includes(':'));
+        console.log(`Found ${stackedHexes.length} stacked hexes in terrain data`);
+
         // Clear existing hexes and wireframes
         for (const hexId in this.hexMeshes) {
             this.scene.remove(this.hexMeshes[hexId]);
@@ -900,15 +859,30 @@ export class HexGrid {
         this.hexMeshes = {};
         this.wireframeMeshes = {};
 
-        // Create new hexes from terrain data
+        // First create all non-stacked hexes to ensure the base exists
         for (const hexId in terrainData) {
-            const hex = terrainData[hexId];
-
-            // Handle stacked hexes
-            if (hex.isStacked) {
-                this.createHexWithId(hex.q, hex.r, hex.s, hex.type, hex.elevation, hexId);
-            } else {
+            if (!hexId.includes(':')) {
+                const hex = terrainData[hexId];
                 this.createHex(hex.q, hex.r, hex.s, hex.type, hex.elevation);
+            }
+        }
+
+        // Then create stacked hexes
+        for (const hexId in terrainData) {
+            if (hexId.includes(':')) {
+                const hex = terrainData[hexId];
+
+                // Verify stack information
+                console.log(`Creating stacked hex ${hexId} at height ${hex.stackHeight || hex.stackLevel * this.hexHeight}`);
+
+                this.createHexWithId(
+                    hex.q,
+                    hex.r,
+                    hex.s,
+                    hex.type,
+                    hex.stackHeight || hex.stackLevel * this.hexHeight,
+                    hexId
+                );
             }
         }
 

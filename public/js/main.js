@@ -211,19 +211,24 @@ class Game {
 
 }
 
-// Wait for Three.js to load
 window.addEventListener('DOMContentLoaded', () => {
   // Dynamically import Three.js and related modules
   const threeScript = document.createElement('script');
   threeScript.src = 'https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js';
   threeScript.onload = () => {
-    // Load OrbitControls after Three.js
-    const orbitControlsScript = document.createElement('script');
-    orbitControlsScript.src = 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js';
-    orbitControlsScript.onload = () => {
-      new Game();
+    // Load SimplexNoise after Three.js
+    const simplexNoiseScript = document.createElement('script');
+    simplexNoiseScript.src = 'https://cdn.jsdelivr.net/npm/simplex-noise@2.4.0/simplex-noise.min.js';
+    simplexNoiseScript.onload = () => {
+      // Load OrbitControls after SimplexNoise
+      const orbitControlsScript = document.createElement('script');
+      orbitControlsScript.src = 'https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js';
+      orbitControlsScript.onload = () => {
+        new Game();
+      };
+      document.head.appendChild(orbitControlsScript);
     };
-    document.head.appendChild(orbitControlsScript);
+    document.head.appendChild(simplexNoiseScript);
   };
   document.head.appendChild(threeScript);
 });

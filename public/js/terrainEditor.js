@@ -30,6 +30,7 @@ export class TerrainEditor {
         <div class="editor-mode-tabs">
           <button class="mode-tab active" data-mode="type">Terrain Type</button>
           <button class="mode-tab" data-mode="stack">Stack</button>
+          <button class="mode-tab" data-mode="generate">Generate</button>
         </div>
         
         <div class="editor-content active" id="type-editor">
@@ -56,6 +57,46 @@ export class TerrainEditor {
             <span>Select a hex to stack or remove</span>
           </div>
         </div>
+
+        <div class="editor-content" id="generate-editor">
+          <h4>Terrain Generation</h4>
+          <div class="generation-controls">
+            <div class="slider-control">
+              <label>Map Size:</label>
+              <input type="range" id="map-size" min="10" max="50" value="17">
+              <span class="value-display">17</span>
+            </div>
+            <div class="slider-control">
+              <label>Sea Level:</label>
+              <input type="range" id="sea-level" min="0" max="100" value="30">
+              <span class="value-display">0.3</span>
+            </div>
+            <div class="slider-control">
+              <label>Hill Level:</label>
+              <input type="range" id="hill-level" min="0" max="100" value="50">
+              <span class="value-display">0.5</span>
+            </div>
+            <div class="slider-control">
+              <label>Mountain Level:</label>
+              <input type="range" id="mountain-level" min="0" max="100" value="70">
+              <span class="value-display">0.7</span>
+            </div>
+            <div class="slider-control">
+              <label>Feature Size:</label>
+              <input type="range" id="feature-size" min="1" max="100" value="30">
+              <span class="value-display">30</span>
+            </div>
+            <div class="slider-control">
+              <label>Hill Frequency:</label>
+              <input type="range" id="hill-frequency" min="1" max="100" value="50">
+              <span class="value-display">50</span>
+            </div>
+            <div class="generation-buttons">
+              <button id="random-seed-btn">Random Seed</button>
+              <button id="generate-terrain-btn">Generate Terrain</button>
+            </div>
+          </div>
+        </div>
         
         <button id="toggle-editor">Toggle Editor</button>
         <button id="save-terrain">Save Terrain</button>
@@ -73,6 +114,44 @@ export class TerrainEditor {
           margin-bottom: 10px;
           text-align: center;
         }
+
+        .generation-controls {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-bottom: 15px;
+        }
+        
+        .slider-control {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+        }
+        
+        .slider-control label {
+          width: 100px;
+          font-size: 12px;
+        }
+        
+        .slider-control input {
+          flex: 1;
+        }
+        
+        .value-display {
+          width: 40px;
+          text-align: right;
+        }
+        
+        .generation-buttons {
+          display: flex;
+          gap: 5px;
+          margin-top: 10px;
+        }
+        
+        .generation-buttons button {
+          flex: 1;
+        }
+
         .editor-panel {
             position: fixed;
             top: 60px;
@@ -186,6 +265,46 @@ export class TerrainEditor {
     const stackHexBtn = document.getElementById('stack-hex');
     const removeHexBtn = document.getElementById('remove-hex');
     const stackInfo = document.querySelector('.stack-info');
+
+    const mapSizeSlider = document.getElementById('map-size');
+    const seaLevelSlider = document.getElementById('sea-level');
+    const hillLevelSlider = document.getElementById('hill-level');
+    const mountainLevelSlider = document.getElementById('mountain-level');
+    const noiseScaleSlider = document.getElementById('noise-scale');
+    const randomSeedBtn = document.getElementById('random-seed-btn');
+    const generateTerrainBtn = document.getElementById('generate-terrain-btn');
+
+
+    const updateSliderDisplay = (slider, valueDisplaySelector, factor = 1) => {
+      // Make sure slider exists before attaching event listener
+      if (!slider) return;
+
+      // Find the value display element using a selector instead of nextElementSibling
+      const valueDisplay = document.querySelector(valueDisplaySelector);
+      if (!valueDisplay) return;
+
+      slider.addEventListener('input', () => {
+        const value = slider.value * factor;
+        valueDisplay.textContent = value.toFixed(factor === 1 ? 0 : 2);
+      });
+    };
+
+    updateSliderDisplay(document.getElementById('map-size'), '#map-size + .value-display');
+    updateSliderDisplay(document.getElementById('sea-level'), '#sea-level + .value-display', 0.01);
+    updateSliderDisplay(document.getElementById('hill-level'), '#hill-level + .value-display', 0.01);
+    updateSliderDisplay(document.getElementById('mountain-level'), '#mountain-level + .value-display', 0.01);
+    updateSliderDisplay(document.getElementById('feature-size'), '#feature-size + .value-display');
+    updateSliderDisplay(document.getElementById('hill-frequency'), '#hill-frequency + .value-display', 0.01);
+
+    // Generate terrain with random seed
+    randomSeedBtn.addEventListener('click', () => {
+      this.generateRandomSeed();
+    });
+
+    // Generate terrain with current settings
+    generateTerrainBtn.addEventListener('click', () => {
+      this.generateNewTerrain();
+    });
 
     toggleBtn.addEventListener('click', () => {
       this.active = !this.active;
@@ -496,5 +615,54 @@ export class TerrainEditor {
       document.getElementById('terrain-editor').classList.toggle('active', this.active);
       toggleBtn.textContent = this.active ? 'Hide Editor' : 'Terrain Editor';
     });
+  }
+
+  generateRandomSeed() {
+    this.currentSeed = Math.random() * 1000;
+    this.generateNewTerrain();
+  }
+
+  generateNewTerrain() {
+    const mapSize = parseInt(document.getElementById('map-size').value);
+    const seaLevel = parseFloat(document.getElementById('sea-level').value) / 100;
+    const hillLevel = parseFloat(document.getElementById('hill-level').value) / 100;
+    const mountainLevel = parseFloat(document.getElementById('mountain-level').value) / 100;
+
+    const featureSize = parseInt(document.getElementById('feature-size').value);
+    const hillFrequency = parseInt(document.getElementById('hill-frequency').value) / 100;
+
+    const noiseScale = 0.1 / (featureSize / 10);
+
+    // Generate new terrain
+    const options = {
+      radius: mapSize,
+      seaLevel,
+      hillLevel,
+      mountainLevel,
+      elevationScale: noiseScale,
+      moistureScale: noiseScale * 0.8,
+      temperatureScale: noiseScale * 0.6,
+      hillFrequency: hillFrequency,
+      seed: this.currentSeed || Math.random() * 1000
+    };
+
+    console.log("Generating terrain with options:", options);
+
+    // Clear current terrain
+    for (const hexId in this.game.hexGrid.hexMeshes) {
+      this.game.scene.remove(this.game.hexGrid.hexMeshes[hexId]);
+      if (this.game.hexGrid.wireframeMeshes[hexId]) {
+        this.game.scene.remove(this.game.hexGrid.wireframeMeshes[hexId]);
+      }
+    }
+    this.game.hexGrid.hexMeshes = {};
+    this.game.hexGrid.wireframeMeshes = {};
+
+    // Generate new terrain
+    this.game.hexGrid.createDefaultGrid(options);
+
+    // Send full terrain update to server
+    const terrainData = this.game.hexGrid.serializeTerrain();
+    this.game.socketManager.updateFullTerrain(terrainData);
   }
 }

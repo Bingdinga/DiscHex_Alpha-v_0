@@ -3,9 +3,9 @@ export class TerrainEditor {
   constructor(game) {
     this.game = game;
     this.active = false;
-    this.editorMode = 'type'; // 'type', 'elevation', 'stack'
+    this.editorMode = 'type'; // 'type', 'stack'
     this.selectedType = 'grass';
-    this.currentElevation = 0;
+    // this.currentElevation = 0;
     this.isProcessingStack = false;
     // Create the editor UI
     this.createEditorUI();
@@ -186,7 +186,6 @@ export class TerrainEditor {
     const stackHexBtn = document.getElementById('stack-hex');
     const removeHexBtn = document.getElementById('remove-hex');
     const stackInfo = document.querySelector('.stack-info');
-    let isProcessingStack = this.isProcessingStack;
 
     toggleBtn.addEventListener('click', () => {
       this.active = !this.active;
@@ -196,28 +195,31 @@ export class TerrainEditor {
 
     stackHexBtn.addEventListener('click', (event) => {
       // Prevent double execution
-      if (isProcessingStack) {
+      if (this.isProcessingStack) {
         console.log('Already processing a stack operation');
         return;
       }
 
-      isProcessingStack = true;
+      this.isProcessingStack = true;
       console.log('Stack button clicked');
 
+      // Disable the button to visually indicate processing
+      stackHexBtn.disabled = true;
+      stackHexBtn.textContent = 'Stacking...';
+
       if (!this.game.hexGrid.selectedHexes || this.game.hexGrid.selectedHexes.size === 0) {
-        isProcessingStack = false;
+        this.isProcessingStack = false;
+        stackHexBtn.disabled = false;
+        stackHexBtn.textContent = 'Stack Hex';
         return;
       }
 
       try {
-        // Get the first selected hex (for debugging)
-        const firstHexId = Array.from(this.game.hexGrid.selectedHexes)[0];
-        const hexMesh = this.game.hexGrid.hexMeshes[firstHexId];
-        console.log('Selected hex:', firstHexId, hexMesh ? hexMesh.userData : 'not found');
+        // Get the selected hexes
+        const selectedHexIds = Array.from(this.game.hexGrid.selectedHexes);
 
-        // Process each selected hex ONE AT A TIME
-        this.game.hexGrid.selectedHexes.forEach(hexId => {
-          // Get the hex's q, r, s coordinates
+        // Process each selected hex
+        selectedHexIds.forEach(hexId => {
           const hexMesh = this.game.hexGrid.hexMeshes[hexId];
           if (!hexMesh) return;
 
@@ -235,19 +237,29 @@ export class TerrainEditor {
               stackInfo.innerHTML = `Stacked hexes: ${stackedHexes.length}`;
             }
 
-            // Send update to server
+            // Important: For stacked hexes, we need to pass the stack-specific hexId
+            const newStackId = newHex.userData.stackLevel > 0
+              ? `${q},${r},${s}:${newHex.userData.stackLevel}`
+              : `${q},${r},${s}`;
+
+            // Send update to server with the correct hexId
             this.game.socketManager.updateHex(q, r, s, {
               type: this.selectedType,
               isStacked: newHex.userData.isStacked,
               stackLevel: newHex.userData.stackLevel,
               stackHeight: newHex.position.y
-            }, newHex.userData.stackLevel > 0 ? `${q},${r},${s}:${newHex.userData.stackLevel}` : undefined);
+            }, newStackId);
           }
         });
       } catch (error) {
         console.error('Error in stack operation:', error);
       } finally {
-        isProcessingStack = false;
+        // Re-enable the button with a delay to prevent double-clicks
+        setTimeout(() => {
+          this.isProcessingStack = false;
+          stackHexBtn.disabled = false;
+          stackHexBtn.textContent = 'Stack Hex';
+        }, 300);
       }
     });
 

@@ -142,7 +142,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Store the hex data in room state
+        // Store the hex data in room state - make sure this is using hexId correctly
         rooms[roomId].terrain[hexId] = hexData;
 
         // Broadcast terrain update to all users in the room

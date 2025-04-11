@@ -59,7 +59,6 @@ class Game {
     this.socketManager = new SocketManager(this);
     this.characterManager = new CharacterManager(this);
     this.ui = new UI(this);
-    this.terrainEditor = new TerrainEditor(this);
     this.fogOfWar = new FogOfWar(this);
     this.diceSystem = new DiceSystem(this);
     this.turnSystem = new TurnSystem(this);

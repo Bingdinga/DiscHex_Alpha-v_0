@@ -202,6 +202,7 @@ export class HexGrid {
 
         return hexMesh;
     }
+
     createWireframeForHex(hexMesh, hexId) {
         // Create wireframe geometry from hex geometry
         const wireframeGeometry = new THREE.EdgesGeometry(this.hexGeometry);
@@ -212,6 +213,11 @@ export class HexGrid {
 
         // Set to not visible initially unless wireframes are toggled on
         wireframe.visible = this.wireframeVisible || false;
+
+        // Store a reference back to the parent hex for synchronization
+        wireframe.userData = {
+            parentHexId: hexId
+        };
 
         // Add to scene and store in wireframeMeshes
         this.scene.add(wireframe);
@@ -286,24 +292,37 @@ export class HexGrid {
                     return;
                 }
 
-                // Remove existing hex
+                // Remove existing hex and its wireframe
                 if (this.hexMeshes[hexId]) {
                     this.scene.remove(this.hexMeshes[hexId]);
                     delete this.hexMeshes[hexId];
+
+                    // Also remove wireframe
+                    if (this.wireframeMeshes[hexId]) {
+                        this.scene.remove(this.wireframeMeshes[hexId]);
+                        delete this.wireframeMeshes[hexId];
+                    }
                 }
 
                 // Create new hex with the updated data
+                let newHex;
                 if (hexData.isStacked) {
-                    this.createHexWithId(hexData.q, hexData.r, hexData.s, hexData.type, hexData.elevation, hexId);
+                    newHex = this.createHexWithId(hexData.q, hexData.r, hexData.s, hexData.type,
+                        hexData.stackHeight || hexData.stackLevel * this.hexHeight,
+                        hexId);
                 } else {
-                    this.createHex(hexData.q, hexData.r, hexData.s, hexData.type, hexData.elevation);
+                    newHex = this.createHex(hexData.q, hexData.r, hexData.s, hexData.type, hexData.elevation);
+                }
+
+                // Log debug info
+                if (newHex) {
+                    console.log(`Updated hex ${hexId}, visible: ${newHex.visible}`);
                 }
             }
         } else if (terrainData.type && terrainData.type === 'hexRemove') {
             // Remove a hex
-            if (terrainData.hexId && this.hexMeshes[terrainData.hexId]) {
-                this.scene.remove(this.hexMeshes[terrainData.hexId]);
-                delete this.hexMeshes[terrainData.hexId];
+            if (terrainData.hexId) {
+                this.removeHexById(terrainData.hexId);
             }
         } else if (terrainData.type && terrainData.type === 'fullUpdate' && terrainData.terrainData) {
             // Full terrain update
@@ -598,7 +617,17 @@ export class HexGrid {
         console.log(`Creating new hex at level ${newStackLevel}, height ${newHeight}`);
 
         // Create the new hex
-        return this.createHexWithId(q, r, s, type, newHeight, newStackId);
+        const newHex = this.createHexWithId(q, r, s, type, newHeight, newStackId);
+
+        // Ensure visibility
+        if (newHex) {
+            newHex.visible = true;
+            if (this.wireframeMeshes[newStackId]) {
+                this.wireframeMeshes[newStackId].visible = this.wireframeVisible;
+            }
+        }
+
+        return newHex;
     }
 
     // Create a hex with a specific ID (for stacked hexes)
@@ -621,10 +650,15 @@ export class HexGrid {
 
         console.log(`Creating hex ${hexId} at position ${position.x}, ${height}, ${position.z}`);
 
+        // Ensure the mesh is visible
+        hexMesh.visible = true;
+
         hexMesh.userData = {
             coordinates: { q, r, s },
             type,
-            stackLevel
+            isStacked,
+            stackLevel,
+            stackHeight: height
         };
 
         // Add to hexMeshes collection
@@ -632,10 +666,11 @@ export class HexGrid {
         this.scene.add(hexMesh);
 
         // Create wireframe for this hex
-        if (typeof this.createWireframeForHex === 'function') {
-            this.createWireframeForHex(hexMesh, hexId);
-        } else {
-            console.warn('createWireframeForHex is not a function');
+        const wireframe = this.createWireframeForHex(hexMesh, hexId);
+
+        // Ensure wireframe is visible only if global wireframe setting allows
+        if (wireframe) {
+            wireframe.visible = this.wireframeVisible;
         }
 
         return hexMesh;
@@ -690,6 +725,34 @@ export class HexGrid {
                 this.selectedHexes.delete(hexId);
             }
 
+            return true;
+        }
+        return false;
+    }
+
+    removeHexById(hexId) {
+        if (this.hexMeshes[hexId]) {
+            this.scene.remove(this.hexMeshes[hexId]);
+            delete this.hexMeshes[hexId];
+
+            // Also remove wireframe
+            if (this.wireframeMeshes[hexId]) {
+                this.scene.remove(this.wireframeMeshes[hexId]);
+                delete this.wireframeMeshes[hexId];
+            }
+
+            // Also remove selection mesh if it exists
+            if (this.selectionMeshes && this.selectionMeshes[hexId]) {
+                this.scene.remove(this.selectionMeshes[hexId]);
+                delete this.selectionMeshes[hexId];
+            }
+
+            // Update selectedHexes if needed
+            if (this.selectedHexes && this.selectedHexes.has(hexId)) {
+                this.selectedHexes.delete(hexId);
+            }
+
+            console.log(`Removed hex and wireframe for ${hexId}`);
             return true;
         }
         return false;

@@ -175,25 +175,22 @@ export class SocketManager {
         this.socket.emit('joinRoom', { roomId });
     }
 
-    // updateHex(q, r, s, data) {
-    //     this.socket.emit('updateHex', {
-    //         roomId: this.game.roomId,
-    //         hexData: {
-    //             q, r, s,
-    //             ...data
-    //         }
-    //     });
-    // }
-
     updateHex(q, r, s, data, hexId) {
+        // For stacked hexes, we need the explicit hexId with the stack level
+        const actualHexId = hexId || `${q},${r},${s}`;
+
+        // Ensure the hexData contains both the coordinates and any additional data
         this.socket.emit('updateHex', {
             roomId: this.game.roomId,
-            hexId: hexId || `${q},${r},${s}`,
+            hexId: actualHexId,
             hexData: {
                 q, r, s,
                 ...data
             }
         });
+
+        // Debug to track what we're sending
+        console.log(`Sending hex update for ${actualHexId}:`, data);
     }
 
     removeHex(hexId) {

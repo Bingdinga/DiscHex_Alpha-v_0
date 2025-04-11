@@ -9,6 +9,7 @@ import { FogOfWar } from './fogOfWar.js';
 import { DiceSystem } from './diceSystem.js';
 import { TurnSystem } from './turnSystem.js';
 import { WeatherSystem } from './weatherSystem.js';
+import { WireframeToggle } from './wireframeToggle.js';
 
 class Game {
   constructor() {
@@ -27,6 +28,7 @@ class Game {
     this.userId = null;
     this.weatherSystem = null;
     this.weatherUpdateCallback = null;
+    this.wireframeToggle = null;
 
     this.init();
   }
@@ -61,6 +63,7 @@ class Game {
     this.fogOfWar = new FogOfWar(this);
     this.diceSystem = new DiceSystem(this);
     this.turnSystem = new TurnSystem(this);
+    this.wireframeToggle = new WireframeToggle(this);
 
     // Set up event listeners
     window.addEventListener('resize', this.onWindowResize.bind(this));

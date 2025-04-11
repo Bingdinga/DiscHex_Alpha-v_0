@@ -3,10 +3,22 @@ export class HexGrid {
     constructor(scene) {
         this.scene = scene;
         this.hexSize = 1;
-        this.hexHeight = 0.2;
+        this.hexHeight = 0.4;
         this.hexMaterials = {};
         this.hexMeshes = {};
-        this.selectedHex = null;
+
+        this.wireframeMeshes = {}; // Store wireframe meshes
+        this.wireframeVisible = false; // Track wireframe visibility
+        this.wireframeMaterial = new THREE.LineBasicMaterial({
+            color: 0x000000,
+            linewidth: 1.5,
+            transparent: false,
+            opacity: 1.0
+        });
+
+
+        this.selectedHexes = new Set(); // Store multiple selected hexes
+        this.selectionMeshes = {}; // Store selection meshes by hex ID
 
         // Initialize the geometry first
         this.initGeometry();
@@ -186,7 +198,26 @@ export class HexGrid {
         this.hexMeshes[hexId] = hexMesh;
         this.scene.add(hexMesh);
 
+        this.createWireframeForHex(hexMesh, hexId);
+
         return hexMesh;
+    }
+    createWireframeForHex(hexMesh, hexId) {
+        // Create wireframe geometry from hex geometry
+        const wireframeGeometry = new THREE.EdgesGeometry(this.hexGeometry);
+        const wireframe = new THREE.LineSegments(wireframeGeometry, this.wireframeMaterial);
+
+        // Copy position from the hex mesh
+        wireframe.position.copy(hexMesh.position);
+
+        // Set to not visible initially unless wireframes are toggled on
+        wireframe.visible = this.wireframeVisible || false;
+
+        // Add to scene and store in wireframeMeshes
+        this.scene.add(wireframe);
+        this.wireframeMeshes[hexId] = wireframe;
+
+        return wireframe;
     }
 
     getHex(q, r, s) {
@@ -322,7 +353,6 @@ export class HexGrid {
     }
 
     createSelectionMesh() {
-        // Create a wireframe hexagon for selection highlighting
         const geometry = new THREE.EdgesGeometry(this.hexGeometry);
         const material = new THREE.LineBasicMaterial({
             color: 0xffff00,
@@ -338,97 +368,241 @@ export class HexGrid {
         return wireframe;
     }
 
-    selectHex(q, r, s) {
+    selectHex(q, r, s, multiSelect = false) {
         const hexId = this.getHexId(q, r, s);
         const hexMesh = this.hexMeshes[hexId];
 
-        if (hexMesh) {
-            this.selectedHex = { q, r, s };
-            this.selectionMesh.position.copy(hexMesh.position);
-            this.selectionMesh.position.y += 0.01; // Slightly above the hex to avoid z-fighting
-            this.selectionMesh.visible = true;
+        if (!hexMesh) return null;
 
-            return hexMesh.userData;
+        if (!multiSelect) {
+            // Clear previous selections if not multi-selecting
+            this.clearSelection();
         }
 
-        return null;
+        // If this hex is already selected and we're multi-selecting, deselect it
+        if (multiSelect && this.selectedHexes.has(hexId)) {
+            this.deselectHex(hexId);
+            return null;
+        }
+
+        // Add to selected set
+        this.selectedHexes.add(hexId);
+
+        // Create selection mesh if it doesn't exist
+        if (!this.selectionMeshes[hexId]) {
+            const selectionMesh = this.createSelectionMesh();
+            this.selectionMeshes[hexId] = selectionMesh;
+        }
+
+        // Position the selection mesh
+        const selectionMesh = this.selectionMeshes[hexId];
+        selectionMesh.position.copy(hexMesh.position);
+        selectionMesh.position.y += 0.01; // Slightly above the hex
+        selectionMesh.visible = true;
+
+        // For backward compatibility, set selectedHex to the last one selected
+        this.selectedHex = { q, r, s };
+
+        return hexMesh.userData;
     }
 
     clearSelection() {
+        this.selectedHexes.forEach(hexId => {
+            if (this.selectionMeshes[hexId]) {
+                this.selectionMeshes[hexId].visible = false;
+            }
+        });
+
+        this.selectedHexes.clear();
         this.selectedHex = null;
-        this.selectionMesh.visible = false;
+    }
+
+    deselectHex(hexId) {
+        if (this.selectionMeshes[hexId]) {
+            this.selectionMeshes[hexId].visible = false;
+            this.selectedHexes.delete(hexId);
+        }
+    }
+
+    getSelectedHexes() {
+        const selectedHexMeshes = [];
+        this.selectedHexes.forEach(hexId => {
+            if (this.hexMeshes[hexId]) {
+                selectedHexMeshes.push(this.hexMeshes[hexId]);
+            }
+        });
+        return selectedHexMeshes;
     }
 
     updateSelectedHex(data) {
-        if (!this.selectedHex) return;
+        if (!this.selectedHex) return null;
 
         const { q, r, s } = this.selectedHex;
-        const hexId = this.getHexId(q, r, s);
+        const level = this.selectedHex.level || 0;
+        const hexId = level > 0 ? `${this.getHexId(q, r, s)}:${level}` : this.getHexId(q, r, s);
         const hexMesh = this.hexMeshes[hexId];
 
-        if (hexMesh) {
-            // Update the mesh material if type changed
-            if (data.type && data.type !== hexMesh.userData.type) {
-                hexMesh.material = this.hexMaterials[data.type];
-                hexMesh.userData.type = data.type;
-            }
+        if (!hexMesh) return null;
 
-            // Update elevation if changed
-            if (data.elevation !== undefined && data.elevation !== hexMesh.userData.elevation) {
-                hexMesh.position.y = data.elevation * this.hexHeight;
-                hexMesh.userData.elevation = data.elevation;
+        // Handle elevation changes with special logic
+        if (data.elevation !== undefined && data.elevation !== hexMesh.userData.elevation) {
+            const newElevation = data.elevation;
+            const oldElevation = hexMesh.userData.elevation;
 
-                // Update selection mesh position
-                this.selectionMesh.position.y = hexMesh.position.y + 0.01;
-            }
+            // Check if there are hexes above this one
+            if (level > 0) {
+                // This is a stacked hex
+                const aboveStackId = `${this.getHexId(q, r, s)}:${level + 1}`;
+                const aboveHex = this.hexMeshes[aboveStackId];
 
-            // Update any other properties
-            Object.assign(hexMesh.userData, data);
+                if (aboveHex) {
+                    // There's a hex above this one
+                    if (newElevation >= aboveHex.userData.elevation) {
+                        // If we're raising to or above the hex above, we need to remove the hex above
+                        this.removeHex(q, r, s, level + 1);
+                    } else {
+                        // Otherwise, adjust the gap between them
+                        aboveHex.position.y = newElevation * this.hexHeight + this.hexHeight;
+                    }
+                }
+            } else {
+                // This is a base hex
+                const aboveStackId = `${this.getHexId(q, r, s)}:1`;
+                const aboveHex = this.hexMeshes[aboveStackId];
 
-            return hexMesh.userData;
-        }
-
-        return null;
-    }
-
-    // public/js/hexGrid.js
-    // Add these methods to the HexGrid class
-
-    // Add a method to stack hexes on top of each other
-    stackHex(q, r, s, type, elevation) {
-        // Check if there's already a hex at this position
-        const hexId = this.getHexId(q, r, s);
-        const existingHex = this.hexMeshes[hexId];
-
-        if (existingHex) {
-            // Find the highest elevation at this position
-            let maxElevation = existingHex.userData.elevation;
-            let stackId = hexId;
-            let level = 1;
-
-            // Check for stacked hexes
-            while (true) {
-                const nextStackId = `${hexId}:${level}`;
-                if (this.hexMeshes[nextStackId]) {
-                    maxElevation = this.hexMeshes[nextStackId].userData.elevation;
-                    stackId = nextStackId;
-                    level++;
-                } else {
-                    break;
+                if (aboveHex) {
+                    // There's a hex above this one
+                    if (newElevation >= aboveHex.userData.elevation) {
+                        // If we're raising to or above the hex above, we need to remove the hex above
+                        this.removeHex(q, r, s, 1);
+                    } else {
+                        // Otherwise, adjust the gap between them
+                        aboveHex.position.y = newElevation * this.hexHeight + this.hexHeight;
+                    }
                 }
             }
 
-            // Create a new hex on top of the stack
-            const newStackId = `${hexId}:${level}`;
-            return this.createHexWithId(q, r, s, type, maxElevation + 1, newStackId);
-        } else {
-            // No hex at this position, create a new one
-            return this.createHex(q, r, s, type, elevation);
+            // Update the hex's elevation
+            hexMesh.position.y = newElevation * this.hexHeight;
+            hexMesh.userData.elevation = newElevation;
+
+            // Update wireframe position if it exists
+            if (this.wireframeMeshes && this.wireframeMeshes[hexId]) {
+                this.wireframeMeshes[hexId].position.copy(hexMesh.position);
+            }
+
+            // Update selection mesh position
+            if (this.selectionMeshes && this.selectionMeshes[hexId]) {
+                this.selectionMeshes[hexId].position.y = hexMesh.position.y + 0.01;
+            }
         }
+
+        // Update the mesh material if type changed
+        if (data.type && data.type !== hexMesh.userData.type) {
+            hexMesh.material = this.hexMaterials[data.type];
+            hexMesh.userData.type = data.type;
+        }
+
+        // Update any other properties
+        Object.assign(hexMesh.userData, data);
+
+        return hexMesh.userData;
+    }
+
+    selectStackedHex(q, r, s, level, multiSelect = false) {
+        const baseHexId = this.getHexId(q, r, s);
+        const hexId = level > 0 ? `${baseHexId}:${level}` : baseHexId;
+        const hexMesh = this.hexMeshes[hexId];
+
+        if (!hexMesh) return null;
+
+        if (!multiSelect) {
+            // Clear previous selections if not multi-selecting
+            this.clearSelection();
+        }
+
+        // If this hex is already selected and we're multi-selecting, deselect it
+        if (multiSelect && this.selectedHexes && this.selectedHexes.has(hexId)) {
+            this.deselectHex(hexId);
+            return null;
+        }
+
+        // Ensure selectedHexes is initialized
+        if (!this.selectedHexes) {
+            this.selectedHexes = new Set();
+        }
+
+        // Add to selected set
+        this.selectedHexes.add(hexId);
+
+        // Ensure selectionMeshes is initialized
+        if (!this.selectionMeshes) {
+            this.selectionMeshes = {};
+        }
+
+        // Create selection mesh if it doesn't exist
+        if (!this.selectionMeshes[hexId]) {
+            const selectionMesh = this.createSelectionMesh();
+            this.selectionMeshes[hexId] = selectionMesh;
+        }
+
+        // Position the selection mesh
+        const selectionMesh = this.selectionMeshes[hexId];
+        selectionMesh.position.copy(hexMesh.position);
+        selectionMesh.position.y += 0.01; // Slightly above the hex
+        selectionMesh.visible = true;
+
+        // For backward compatibility, set selectedHex to the last one selected
+        this.selectedHex = { q, r, s, level };
+
+        return hexMesh.userData;
+    }
+
+    // Add a method to stack hexes on top of each other
+    stackHex(q, r, s, type) {
+        console.log(`Stacking hex at ${q},${r},${s}`);
+
+        // Check if there's already a hex at this position
+        const hexId = this.getHexId(q, r, s);
+        const baseHex = this.hexMeshes[hexId];
+
+        if (!baseHex) {
+            console.log(`No base hex found at ${q},${r},${s}, creating one`);
+            // Create a base hex if it doesn't exist
+            return this.createHex(q, r, s, type, 0);
+        }
+
+        // Find the highest hex in the stack
+        let highestLevel = 0;
+        let highestHex = baseHex;
+
+        // Check for existing stacked hexes
+        for (let level = 1; ; level++) {
+            const stackId = `${hexId}:${level}`;
+            if (this.hexMeshes[stackId]) {
+                highestLevel = level;
+                highestHex = this.hexMeshes[stackId];
+            } else {
+                break;
+            }
+        }
+
+        console.log(`Found highest hex at level ${highestLevel}`);
+
+        // Create one new hex on top of the stack
+        const newStackLevel = highestLevel + 1;
+        const newStackId = `${hexId}:${newStackLevel}`;
+
+        // Calculate height based on stack level
+        const newHeight = newStackLevel * this.hexHeight;
+        console.log(`Creating new hex at level ${newStackLevel}, height ${newHeight}`);
+
+        // Create the new hex
+        return this.createHexWithId(q, r, s, type, newHeight, newStackId);
     }
 
     // Create a hex with a specific ID (for stacked hexes)
-    createHexWithId(q, r, s, type = 'grass', elevation = 0, hexId) {
+    createHexWithId(q, r, s, type = 'grass', height = 0, hexId) {
         // Validate cube coordinates
         if (q + r + s !== 0) {
             console.error('Invalid cube coordinates:', q, r, s);
@@ -438,19 +612,55 @@ export class HexGrid {
         const position = this.cubeToWorld(q, r, s);
         const hexMesh = new THREE.Mesh(this.hexGeometry, this.hexMaterials[type]);
 
-        hexMesh.position.set(position.x, elevation * this.hexHeight, position.z);
+        // Set position based on height
+        hexMesh.position.set(position.x, height, position.z);
+
+        // Parse the stack level from the hexId
+        const isStacked = hexId && hexId.includes(':');
+        const stackLevel = isStacked ? parseInt(hexId.split(':')[1]) : 0;
+
+        console.log(`Creating hex ${hexId} at position ${position.x}, ${height}, ${position.z}`);
+
         hexMesh.userData = {
             coordinates: { q, r, s },
             type,
-            elevation,
-            isStacked: hexId.includes(':'),
-            stackLevel: hexId.includes(':') ? parseInt(hexId.split(':')[1]) : 0
+            stackLevel
         };
 
+        // Add to hexMeshes collection
         this.hexMeshes[hexId] = hexMesh;
         this.scene.add(hexMesh);
 
+        // Create wireframe for this hex
+        if (typeof this.createWireframeForHex === 'function') {
+            this.createWireframeForHex(hexMesh, hexId);
+        } else {
+            console.warn('createWireframeForHex is not a function');
+        }
+
         return hexMesh;
+    }
+
+    toggleWireframes(visible) {
+        // If visible parameter is not provided, toggle the current state
+        if (visible === undefined) {
+            this.wireframeVisible = !this.wireframeVisible;
+        } else {
+            this.wireframeVisible = visible;
+        }
+
+        console.log(`Toggling wireframes to ${this.wireframeVisible ? 'visible' : 'hidden'}`);
+
+        // Update visibility of all wireframes
+        if (this.wireframeMeshes) {
+            for (const hexId in this.wireframeMeshes) {
+                if (this.wireframeMeshes[hexId]) {
+                    this.wireframeMeshes[hexId].visible = this.wireframeVisible;
+                }
+            }
+        }
+
+        return this.wireframeVisible;
     }
 
     // Remove a hex at a specific position and level
@@ -458,9 +668,28 @@ export class HexGrid {
         const baseHexId = this.getHexId(q, r, s);
         const hexId = level > 0 ? `${baseHexId}:${level}` : baseHexId;
 
+        // Remove hex mesh
         if (this.hexMeshes[hexId]) {
             this.scene.remove(this.hexMeshes[hexId]);
             delete this.hexMeshes[hexId];
+
+            // Remove wireframe mesh
+            if (this.wireframeMeshes && this.wireframeMeshes[hexId]) {
+                this.scene.remove(this.wireframeMeshes[hexId]);
+                delete this.wireframeMeshes[hexId];
+            }
+
+            // Remove selection mesh if exists
+            if (this.selectionMeshes && this.selectionMeshes[hexId]) {
+                this.scene.remove(this.selectionMeshes[hexId]);
+                delete this.selectionMeshes[hexId];
+            }
+
+            // Update selectedHexes if needed
+            if (this.selectedHexes && this.selectedHexes.has(hexId)) {
+                this.selectedHexes.delete(hexId);
+            }
+
             return true;
         }
         return false;
@@ -523,11 +752,15 @@ export class HexGrid {
     loadTerrain(terrainData) {
         console.log(`Loading terrain with ${Object.keys(terrainData).length} hexes`);
 
-        // Clear existing hexes
+        // Clear existing hexes and wireframes
         for (const hexId in this.hexMeshes) {
             this.scene.remove(this.hexMeshes[hexId]);
+            if (this.wireframeMeshes[hexId]) {
+                this.scene.remove(this.wireframeMeshes[hexId]);
+            }
         }
         this.hexMeshes = {};
+        this.wireframeMeshes = {};
 
         // Create new hexes from terrain data
         for (const hexId in terrainData) {

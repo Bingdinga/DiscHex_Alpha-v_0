@@ -6,7 +6,7 @@ export class TerrainEditor {
     this.editorMode = 'type'; // 'type', 'elevation', 'stack'
     this.selectedType = 'grass';
     this.currentElevation = 0;
-
+    this.isProcessingStack = false;
     // Create the editor UI
     this.createEditorUI();
 
@@ -24,9 +24,11 @@ export class TerrainEditor {
     editorPanel.classList.add('editor-panel');
     editorPanel.innerHTML = `
         <h3>Terrain Editor</h3>
+        <div class="editor-tip">
+          Hold Ctrl/Cmd to select multiple hexes
+        </div>
         <div class="editor-mode-tabs">
           <button class="mode-tab active" data-mode="type">Terrain Type</button>
-          <button class="mode-tab" data-mode="elevation">Elevation</button>
           <button class="mode-tab" data-mode="stack">Stack</button>
         </div>
         
@@ -42,14 +44,6 @@ export class TerrainEditor {
             <button class="terrain-type" data-type="acid">Acid</button>
             <button class="terrain-type" data-type="magic">Magic</button>
             <button class="terrain-type" data-type="corrupted">Corrupted</button>
-          </div>
-        </div>
-        
-        <div class="editor-content" id="elevation-editor">
-          <div class="elevation-controls">
-            <button id="elevation-down">-</button>
-            <span id="elevation-value">0</span>
-            <button id="elevation-up">+</button>
           </div>
         </div>
         
@@ -73,6 +67,12 @@ export class TerrainEditor {
     // Add CSS for the editor
     const style = document.createElement('style');
     style.textContent = `
+        .editor-tip {
+          font-size: 0.8em;
+          color: #aaa;
+          margin-bottom: 10px;
+          text-align: center;
+        }
         .editor-panel {
             position: fixed;
             top: 60px;
@@ -186,6 +186,7 @@ export class TerrainEditor {
     const stackHexBtn = document.getElementById('stack-hex');
     const removeHexBtn = document.getElementById('remove-hex');
     const stackInfo = document.querySelector('.stack-info');
+    let isProcessingStack = this.isProcessingStack;
 
     toggleBtn.addEventListener('click', () => {
       this.active = !this.active;
@@ -193,51 +194,105 @@ export class TerrainEditor {
       this.game.hexGrid.clearSelection();
     });
 
-    stackHexBtn.addEventListener('click', () => {
-      if (this.game.hexGrid.selectedHex) {
-        const { q, r, s } = this.game.hexGrid.selectedHex;
-        const newHex = this.game.hexGrid.stackHex(q, r, s, this.selectedType, 0);
+    stackHexBtn.addEventListener('click', (event) => {
+      // Prevent double execution
+      if (isProcessingStack) {
+        console.log('Already processing a stack operation');
+        return;
+      }
 
-        if (newHex) {
-          // Update stack info
-          const stackedHexes = this.game.hexGrid.getStackedHexes(q, r, s);
-          stackInfo.innerHTML = `Stacked hexes: ${stackedHexes.length}`;
+      isProcessingStack = true;
+      console.log('Stack button clicked');
 
-          // Send update to server
-          this.game.socketManager.updateHex(q, r, s, {
-            type: this.selectedType,
-            elevation: newHex.userData.elevation,
-            isStacked: true,
-            stackLevel: newHex.userData.stackLevel
-          }, newHex.userData.stackLevel > 0 ? `${q},${r},${s}:${newHex.userData.stackLevel}` : undefined);
-        }
+      if (!this.game.hexGrid.selectedHexes || this.game.hexGrid.selectedHexes.size === 0) {
+        isProcessingStack = false;
+        return;
+      }
+
+      try {
+        // Get the first selected hex (for debugging)
+        const firstHexId = Array.from(this.game.hexGrid.selectedHexes)[0];
+        const hexMesh = this.game.hexGrid.hexMeshes[firstHexId];
+        console.log('Selected hex:', firstHexId, hexMesh ? hexMesh.userData : 'not found');
+
+        // Process each selected hex ONE AT A TIME
+        this.game.hexGrid.selectedHexes.forEach(hexId => {
+          // Get the hex's q, r, s coordinates
+          const hexMesh = this.game.hexGrid.hexMeshes[hexId];
+          if (!hexMesh) return;
+
+          const { q, r, s } = hexMesh.userData.coordinates;
+          console.log(`Processing selected hex ${q},${r},${s}`);
+
+          // Stack a new hex on top
+          const newHex = this.game.hexGrid.stackHex(q, r, s, this.selectedType);
+
+          if (newHex) {
+            // Update stack info
+            const stackedHexes = this.game.hexGrid.getStackedHexes(q, r, s);
+            const stackInfo = document.querySelector('.stack-info');
+            if (stackInfo) {
+              stackInfo.innerHTML = `Stacked hexes: ${stackedHexes.length}`;
+            }
+
+            // Send update to server
+            this.game.socketManager.updateHex(q, r, s, {
+              type: this.selectedType,
+              isStacked: newHex.userData.isStacked,
+              stackLevel: newHex.userData.stackLevel,
+              stackHeight: newHex.position.y
+            }, newHex.userData.stackLevel > 0 ? `${q},${r},${s}:${newHex.userData.stackLevel}` : undefined);
+          }
+        });
+      } catch (error) {
+        console.error('Error in stack operation:', error);
+      } finally {
+        isProcessingStack = false;
       }
     });
 
     removeHexBtn.addEventListener('click', () => {
-      if (this.game.hexGrid.selectedHex) {
-        const { q, r, s } = this.game.hexGrid.selectedHex;
-        const stackedHexes = this.game.hexGrid.getStackedHexes(q, r, s);
+      if (!this.game.hexGrid.selectedHexes || this.game.hexGrid.selectedHexes.size === 0) return;
 
-        if (stackedHexes.length > 0) {
-          // Remove the top hex
-          const topHex = stackedHexes[stackedHexes.length - 1];
-          const hexId = topHex.userData.isStacked ?
-            `${q},${r},${s}:${topHex.userData.stackLevel}` :
-            `${q},${r},${s}`;
+      // Process each selected hex
+      this.game.hexGrid.selectedHexes.forEach(hexId => {
+        // Extract q, r, s and potentially the stackLevel
+        let q, r, s, stackLevel = 0;
 
-          const removed = this.game.hexGrid.removeHex(q, r, s, topHex.userData.stackLevel);
-
-          if (removed) {
-            // Update stack info
-            const updatedStackedHexes = this.game.hexGrid.getStackedHexes(q, r, s);
-            stackInfo.innerHTML = `Stacked hexes: ${updatedStackedHexes.length}`;
-
-            // Send update to server
-            this.game.socketManager.removeHex(hexId);
-          }
+        if (hexId.includes(':')) {
+          // This is a stacked hex
+          const [baseId, level] = hexId.split(':');
+          const coords = baseId.split(',');
+          q = parseInt(coords[0]);
+          r = parseInt(coords[1]);
+          s = parseInt(coords[2]);
+          stackLevel = parseInt(level);
+        } else {
+          // This is a base hex
+          const coords = hexId.split(',');
+          q = parseInt(coords[0]);
+          r = parseInt(coords[1]);
+          s = parseInt(coords[2]);
         }
-      }
+
+        // Remove the hex
+        const removed = this.game.hexGrid.removeHex(q, r, s, stackLevel);
+
+        if (removed) {
+          // Update stack info
+          const stackedHexes = this.game.hexGrid.getStackedHexes(q, r, s);
+          const stackInfo = document.querySelector('.stack-info');
+          if (stackInfo) {
+            stackInfo.innerHTML = `Stacked hexes: ${stackedHexes.length}`;
+          }
+
+          // Send update to server
+          this.game.socketManager.removeHex(hexId);
+        }
+      });
+
+      // Clear selection since the selected hexes have been removed
+      this.game.hexGrid.clearSelection();
     });
 
     // Mode tabs
@@ -265,8 +320,8 @@ export class TerrainEditor {
         button.classList.add('active');
         this.selectedType = button.dataset.type;
 
-        // If a hex is selected, update it
-        if (this.game.hexGrid.selectedHex && this.editorMode === 'type') {
+        // Explicitly apply changes to all selected hexes if in type mode
+        if (this.editorMode === 'type') {
           this.updateSelectedHex({ type: this.selectedType });
         }
       });
@@ -320,39 +375,22 @@ export class TerrainEditor {
       input.click();
     });
 
-    // Elevation controls
-    const elevationUp = document.getElementById('elevation-up');
-    const elevationDown = document.getElementById('elevation-down');
-    const elevationValue = document.getElementById('elevation-value');
-
-    elevationUp.addEventListener('click', () => {
-      this.currentElevation++;
-      elevationValue.textContent = this.currentElevation;
-
-      // If a hex is selected, update it
-      if (this.game.hexGrid.selectedHex && this.editorMode === 'elevation') {
-        this.updateSelectedHex({ elevation: this.currentElevation });
-      }
-    });
-
-    elevationDown.addEventListener('click', () => {
-      if (this.currentElevation > 0) {
-        this.currentElevation--;
-        elevationValue.textContent = this.currentElevation;
-
-        // If a hex is selected, update it
-        if (this.game.hexGrid.selectedHex && this.editorMode === 'elevation') {
-          this.updateSelectedHex({ elevation: this.currentElevation });
-        }
-      }
-    });
-
     // Set up raycaster for hex selection
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
     window.addEventListener('click', (event) => {
       if (!this.active) return;
+
+      // Skip UI element clicks
+      if (event.target.closest('.editor-panel') ||
+        event.target.closest('#editor-toggle-btn') ||
+        event.target.closest('#toggle-fog') ||
+        event.target.closest('.turn-panel') ||
+        event.target.closest('.dice-panel') ||
+        event.target.closest('.weather-control')) {
+        return;
+      }
 
       // Calculate mouse position in normalized device coordinates
       mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -361,7 +399,7 @@ export class TerrainEditor {
       // Update the raycaster
       raycaster.setFromCamera(mouse, this.game.cameraManager.camera);
 
-      // Filter objects to include only hex meshes
+      // Get all hex meshes, including stacked ones
       const hexMeshes = Object.values(this.game.hexGrid.hexMeshes);
 
       // Find intersections
@@ -372,31 +410,54 @@ export class TerrainEditor {
         const hexMesh = intersects[0].object;
         const { q, r, s } = hexMesh.userData.coordinates;
 
-        // Select the hex
-        this.game.hexGrid.selectHex(q, r, s);
-
-        // If in appropriate mode, update the hex
-        if (this.editorMode === 'type') {
-          this.updateSelectedHex({ type: this.selectedType });
-        } else if (this.editorMode === 'elevation') {
-          this.updateSelectedHex({ elevation: this.currentElevation });
+        // Get the hex ID to correctly identify which hex in the stack was clicked
+        let hexId;
+        for (const id in this.game.hexGrid.hexMeshes) {
+          if (this.game.hexGrid.hexMeshes[id] === hexMesh) {
+            hexId = id;
+            break;
+          }
         }
-      } else {
-        // Deselect when clicking on empty space
+
+        if (hexId) {
+          // Check if control key is pressed for multi-select
+          const multiSelect = event.ctrlKey || event.metaKey;
+
+          // Select the specific hex that was clicked
+          if (hexId.includes(':')) {
+            // For stacked hexes, we need to pass the stack level
+            const stackLevel = parseInt(hexId.split(':')[1]);
+            this.game.hexGrid.selectStackedHex(q, r, s, stackLevel, multiSelect);
+          } else {
+            // For base hexes
+            this.game.hexGrid.selectHex(q, r, s, multiSelect);
+          }
+        }
+      } else if (!event.ctrlKey && !event.metaKey) {
+        // Only clear selection when clicking empty space without control key
         this.game.hexGrid.clearSelection();
       }
     });
   }
 
   updateSelectedHex(data) {
-    if (!this.game.hexGrid.selectedHex) return;
+    // Get all selected hexes
+    const selectedHexMeshes = this.game.hexGrid.getSelectedHexes();
 
-    const { q, r, s } = this.game.hexGrid.selectedHex;
-    const updatedData = this.game.hexGrid.updateSelectedHex(data);
+    if (selectedHexMeshes.length === 0) return;
 
-    if (updatedData) {
-      // Send update to server
-      this.game.socketManager.updateHex(q, r, s, updatedData);
+    // Update each selected hex
+    for (const hexMesh of selectedHexMeshes) {
+      const { q, r, s } = hexMesh.userData.coordinates;
+      const hexId = this.game.hexGrid.getHexId(q, r, s);
+
+      // Apply updates to the hex in the grid
+      const updatedData = this.game.hexGrid.updateSelectedHex(data);
+
+      if (updatedData) {
+        // Send update to server for each hex
+        this.game.socketManager.updateHex(q, r, s, updatedData);
+      }
     }
   }
 

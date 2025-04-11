@@ -3,6 +3,7 @@ export class SocketManager {
     constructor(game) {
         this.game = game;
         this.socket = io();
+        this.localChanges = new Set(); // Track local changes to avoid double processing
         this.setupEventListeners();
     }
 
@@ -174,15 +175,15 @@ export class SocketManager {
         this.socket.emit('joinRoom', { roomId });
     }
 
-    updateHex(q, r, s, data) {
-        this.socket.emit('updateHex', {
-            roomId: this.game.roomId,
-            hexData: {
-                q, r, s,
-                ...data
-            }
-        });
-    }
+    // updateHex(q, r, s, data) {
+    //     this.socket.emit('updateHex', {
+    //         roomId: this.game.roomId,
+    //         hexData: {
+    //             q, r, s,
+    //             ...data
+    //         }
+    //     });
+    // }
 
     updateHex(q, r, s, data, hexId) {
         this.socket.emit('updateHex', {

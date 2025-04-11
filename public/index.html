@@ -1,0 +1,31 @@
+<!-- public/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DiscHex Alpha - 3D Hexagonal TTRPG Platform</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="ui-container">
+    <div id="room-controls">
+      <button id="create-room-btn">Create Room</button>
+      <div id="join-room-container">
+        <input type="text" id="room-id-input" placeholder="Room ID">
+        <button id="join-room-btn">Join Room</button>
+      </div>
+      <div id="room-info"></div>
+    </div>
+    <div id="game-controls" style="display: none;">
+      <div id="action-bar"></div>
+      <div id="character-info"></div>
+    </div>
+  </div>
+  
+  <div id="canvas-container"></div>
+  
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

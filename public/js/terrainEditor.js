@@ -63,8 +63,8 @@ export class TerrainEditor {
           <div class="generation-controls">
             <div class="slider-control">
               <label>Map Size:</label>
-              <input type="range" id="map-size" min="10" max="50" value="17">
-              <span class="value-display">17</span>
+              <input type="range" id="map-size" min="10" max="50" value="31">
+              <span class="value-display">31</span>
             </div>
             <div class="slider-control">
               <label>Sea Level:</label>
@@ -78,8 +78,8 @@ export class TerrainEditor {
             </div>
             <div class="slider-control">
               <label>Mountain Level:</label>
-              <input type="range" id="mountain-level" min="0" max="100" value="70">
-              <span class="value-display">0.7</span>
+              <input type="range" id="mountain-level" min="0" max="100" value="50">
+              <span class="value-display">0.5</span>
             </div>
             <div class="slider-control">
               <label>Feature Size:</label>
@@ -648,7 +648,10 @@ export class TerrainEditor {
 
     console.log("Generating terrain with options:", options);
 
-    // Clear current terrain
+    // Preserve the roomId before clearing terrain
+    const roomId = this.game.roomId;
+
+    // Clear current terrain without disconnecting
     for (const hexId in this.game.hexGrid.hexMeshes) {
       this.game.scene.remove(this.game.hexGrid.hexMeshes[hexId]);
       if (this.game.hexGrid.wireframeMeshes[hexId]) {
@@ -661,8 +664,18 @@ export class TerrainEditor {
     // Generate new terrain
     this.game.hexGrid.createDefaultGrid(options);
 
-    // Send full terrain update to server
+    // Get the new terrain data
     const terrainData = this.game.hexGrid.serializeTerrain();
-    this.game.socketManager.updateFullTerrain(terrainData);
+
+    // Make sure we still have the roomId
+    if (roomId && this.game.socketManager) {
+      // Ensure we're using the right roomId
+      this.game.roomId = roomId;
+
+      // Send the update with explicit roomId
+      this.game.socketManager.updateFullTerrain(terrainData);
+    } else {
+      console.error("Cannot update terrain - no room ID found");
+    }
   }
 }

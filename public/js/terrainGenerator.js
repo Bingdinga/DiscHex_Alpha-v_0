@@ -128,15 +128,16 @@ export class TerrainGenerator {
                 let elevationLevel = 0;
 
                 if (elevation > opts.mountainLevel) {
-                    // Mountains (elevationLevel 2-4)
-                    elevationLevel = Math.floor((elevation - opts.mountainLevel) / (1 - opts.mountainLevel) * 3) + 2;
+                    // Mountains (elevationLevel 2-32)
+                    // Scale to provide more range
+                    elevationLevel = Math.floor((elevation - opts.mountainLevel) / (1 - opts.mountainLevel) * 30) + 2;
                 } else if (elevation > opts.hillLevel) {
                     // Hills (elevationLevel 1)
                     elevationLevel = 1;
                 }
 
-                // Cap elevation level at 4
-                elevationLevel = Math.min(elevationLevel, 4);
+                // Cap elevation level at 32 instead of 4
+                elevationLevel = Math.min(elevationLevel, 32);
 
                 // Create base hex
                 const hexId = `${q},${r},${s}`;

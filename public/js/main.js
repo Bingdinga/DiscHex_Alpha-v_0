@@ -152,6 +152,13 @@ class Game {
     } else {
       console.log('No terrain data in state, using default terrain');
       this.hexGrid.createDefaultGrid();
+
+      // Send the generated terrain to the server
+      const terrainData = this.hexGrid.serializeTerrain();
+      if (this.socketManager && this.roomId) {
+        console.log('Sending generated terrain to server');
+        this.socketManager.updateFullTerrain(terrainData);
+      }
     }
 
     // Update characters

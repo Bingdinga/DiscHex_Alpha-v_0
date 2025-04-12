@@ -67,6 +67,7 @@ class Game {
     // Set up event listeners
     window.addEventListener('resize', this.onWindowResize.bind(this));
     this.setupHexClickListener();
+    this.setupKeyboardShortcuts();
 
     // Start animation loop
     this.animate();
@@ -78,13 +79,200 @@ class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  setupKeyboardShortcuts() {
+    window.addEventListener('keydown', (event) => {
+      // Delete key pressed
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        // Only process if the terrain editor is active
+        if (!this.terrainEditor.active) return;
+
+        // Skip if no hexes are selected
+        if (!this.hexGrid.selectedHexes || this.hexGrid.selectedHexes.size === 0) return;
+
+        // Process each selected hex
+        this.hexGrid.selectedHexes.forEach(hexId => {
+          // Extract q, r, s and potentially the stackLevel
+          let q, r, s, stackLevel = 0;
+
+          if (hexId.includes(':')) {
+            // This is a stacked hex
+            const [baseId, level] = hexId.split(':');
+            const coords = baseId.split(',');
+            q = parseInt(coords[0]);
+            r = parseInt(coords[1]);
+            s = parseInt(coords[2]);
+            stackLevel = parseInt(level);
+          } else {
+            // This is a base hex
+            const coords = hexId.split(',');
+            q = parseInt(coords[0]);
+            r = parseInt(coords[1]);
+            s = parseInt(coords[2]);
+          }
+
+          // Remove the hex
+          const removed = this.hexGrid.removeHex(q, r, s, stackLevel);
+
+          if (removed) {
+            // Send update to server
+            this.socketManager.removeHex(hexId);
+          }
+        });
+
+        // Clear selection since the selected hexes have been removed
+        this.hexGrid.clearSelection();
+      }
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Control' || event.key === 'Meta') {
+        // Disable camera controls when Ctrl/Cmd is pressed
+        if (this.cameraManager && this.cameraManager.controls) {
+          this.cameraManager.controls.enableRotate = false;
+          this.cameraManager.controls.enablePan = false;
+          this.cameraManager.controls.enableZoom = false;
+        }
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      if (event.key === 'Control' || event.key === 'Meta') {
+        // Re-enable camera controls when Ctrl/Cmd is released
+        if (this.cameraManager && this.cameraManager.controls) {
+          this.cameraManager.controls.enableRotate = true;
+          this.cameraManager.controls.enablePan = true;
+          this.cameraManager.controls.enableZoom = true;
+        }
+      }
+    });
+
+  }
+
   setupHexClickListener() {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    let isDragging = false;
+    let lastSelectedHex = null;
+    let isCtrlPressed = false;
+    // Track already selected hexes to avoid deselecting them
+    let processedHexes = new Set();
 
+    // Track control key state
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Control' || event.key === 'Meta') {
+        isCtrlPressed = true;
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      if (event.key === 'Control' || event.key === 'Meta') {
+        isCtrlPressed = false;
+        isDragging = false;
+        lastSelectedHex = null;
+        // Clear the processed hexes when control is released
+        processedHexes.clear();
+      }
+    });
+
+    // Track mouse down for drag selection
+    window.addEventListener('mousedown', (event) => {
+      // Only initiate drag if Ctrl/Cmd key is pressed and it's a left click
+      if (isCtrlPressed && event.button === 0) {
+        isDragging = true;
+
+        // Clear the processed hexes set when starting a new drag
+        processedHexes.clear();
+
+        // Prevent the default behavior to avoid camera movement
+        event.preventDefault();
+      }
+    });
+
+    // Track mouse up to end drag selection
+    window.addEventListener('mouseup', (event) => {
+      if (isDragging) {
+        isDragging = false;
+        lastSelectedHex = null;
+        // Clear the processed hexes set when ending a drag
+        processedHexes.clear();
+      }
+    });
+
+    // Track mouse movement for drag selection
+    window.addEventListener('mousemove', (event) => {
+      if (isDragging && isCtrlPressed) {
+        // Skip if terrain editor is not active
+        if (!this.terrainEditor.active) return;
+
+        // Calculate mouse position in normalized device coordinates
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        // Update the raycaster
+        raycaster.setFromCamera(mouse, this.cameraManager.camera);
+
+        // Get all hex meshes
+        const hexMeshes = Object.values(this.hexGrid.hexMeshes);
+
+        // Find intersections
+        const intersects = raycaster.intersectObjects(hexMeshes);
+
+        if (intersects.length > 0) {
+          // Get the intersected hex
+          const hexMesh = intersects[0].object;
+
+          // Skip if this is the same hex we just processed
+          if (lastSelectedHex === hexMesh) return;
+
+          lastSelectedHex = hexMesh;
+
+          const { q, r, s } = hexMesh.userData.coordinates;
+
+          // Get the hex ID to correctly identify which hex in the stack was clicked
+          let hexId;
+          for (const id in this.hexGrid.hexMeshes) {
+            if (this.hexGrid.hexMeshes[id] === hexMesh) {
+              hexId = id;
+              break;
+            }
+          }
+
+          if (hexId) {
+            // Check if this hex is already in our processed set
+            if (processedHexes.has(hexId)) {
+              return; // Skip if we've already processed this hex
+            }
+
+            // Add to our processed set
+            processedHexes.add(hexId);
+
+            // Check if the hex is already in the selection
+            const isAlreadySelected = this.hexGrid.selectedHexes &&
+              this.hexGrid.selectedHexes.has(hexId);
+
+            // Only add to selection, don't remove
+            if (!isAlreadySelected) {
+              if (hexId.includes(':')) {
+                // For stacked hexes, we need to pass the stack level
+                const stackLevel = parseInt(hexId.split(':')[1]);
+                this.hexGrid.selectStackedHex(q, r, s, stackLevel, true);
+              } else {
+                // For base hexes
+                this.hexGrid.selectHex(q, r, s, true);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Keep the original click handler for individual selections
     window.addEventListener('click', (event) => {
-      // Skip if terrain editor is active
+      // Skip if terrain editor is active (since your original code has this check)
       if (this.terrainEditor.active) return;
+
+      // Skip if we're dragging
+      if (isDragging) return;
 
       // Skip if no local character or not in a room
       if (!this.characterManager.localCharacter || !this.roomId) return;

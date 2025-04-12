@@ -11,6 +11,8 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
+const roomTimeouts = {}; // Track timeouts for room deletion
+
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, '../../public')));
 
@@ -102,6 +104,12 @@ io.on('connection', (socket) => {
             console.error('Error creating room:', error);
             socket.emit('error', { message: 'Failed to create room' });
         }
+
+        // if (roomTimeouts[roomId]) {
+        //     // Clear the timeout if it exists
+        //     clearTimeout(roomTimeouts[roomId]);
+        //     delete roomTimeouts[roomId];
+        // }
     });
 
     // Join existing room
@@ -131,6 +139,13 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('characterJoined', { characterId: socket.id });
 
         console.log(`User ${socket.id} joined room ${roomId}`);
+
+        if (roomTimeouts[roomId]) {
+            // Clear the timeout if it exists
+            clearTimeout(roomTimeouts[roomId]);
+            delete roomTimeouts[roomId];
+            console.log(`Cancelled deletion timeout for room ${roomId} as a new user joined`);
+        }
     });
 
     // Disconnect handling
@@ -151,10 +166,12 @@ io.on('connection', (socket) => {
                 console.log(`Room ${roomId} is empty. Will delete in 1 minute if still empty.`);
 
                 // Set a timeout to delete the room after 1 minute if still empty
-                setTimeout(() => {
+                // Store the timeout ID so we can cancel it if someone joins
+                roomTimeouts[roomId] = setTimeout(() => {
                     if (rooms[roomId] && Object.keys(rooms[roomId].users).length === 0) {
                         console.log(`Deleting empty room: ${roomId}`);
                         delete rooms[roomId];
+                        delete roomTimeouts[roomId]; // Clean up the timeout reference
                     }
                 }, 60000); // 1 minute delay
             }
